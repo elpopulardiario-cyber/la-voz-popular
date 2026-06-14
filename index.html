@@ -1,11 +1,315 @@
-const URL = process.env.KV_REST_API_URL, TOKEN = process.env.KV_REST_API_TOKEN;
-async function redis(cmd){
-  const r = await fetch(URL,{ method:"POST", headers:{ Authorization:`Bearer ${TOKEN}`, "Content-Type":"application/json" }, body: JSON.stringify(cmd) });
-  return (await r.json()).result;
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>La Voz Popular</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#fafaf9; color:#1c1917; font-family: Georgia, serif; }
+  .sans { font-family: system-ui, sans-serif; }
+  button { cursor:pointer; font-family:inherit; }
+  input,textarea,select { font-family:inherit; }
+  .wrap { max-width:760px; margin:0 auto; padding:0 16px; }
+  .chip { font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid; display:inline-block; }
+  .btn-red { background:#b91c1c; color:#fff; border:none; padding:8px 12px; border-radius:3px; font-size:14px; }
+  .btn-red:hover { background:#991b1b; }
+  .btn-dark { background:#1c1917; color:#fff; border:none; padding:8px 12px; border-radius:3px; font-size:14px; }
+  .field { width:100%; border:1px solid #d6d3d1; border-radius:3px; padding:12px; font-size:15px; }
+  .field:focus { outline:none; border-color:#1c1917; }
+  .card { background:#fff; border:1px solid #e7e5e4; border-radius:3px; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .pill { font-size:12px; padding:6px 12px; border-radius:999px; border:1px solid #d6d3d1; color:#57534e; background:transparent; }
+  .pill.on { background:#1c1917; color:#fff; border-color:#1c1917; }
+  .muted { color:#78716c; }
+  .tab { font-size:14px; padding:8px 12px; border:none; border-bottom:2px solid transparent; background:none; color:#78716c; }
+  .tab.on { border-color:#b91c1c; color:#b91c1c; font-weight:600; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const CATS = [
+  { id:"noticia", label:"Noticia", c:"#1e40af", bg:"#dbeafe" },
+  { id:"denuncia", label:"Denuncia", c:"#991b1b", bg:"#fee2e2" },
+  { id:"queja", label:"Queja", c:"#92400e", bg:"#fef3c7" },
+  { id:"historico", label:"Hecho histórico", c:"#6b21a8", bg:"#f3e8ff" },
+  { id:"acontecimiento", label:"Acontecimiento", c:"#065f46", bg:"#d1fae5" },
+  { id:"opinion", label:"Opinión", c:"#44403c", bg:"#e7e5e4" },
+];
+const cat = (id) => CATS.find(c => c.id === id) || CATS[0];
+const fmt = (ts) => new Date(ts).toLocaleDateString("es-AR",{day:"2-digit",month:"long",year:"numeric"});
+
+async function api(path, body) {
+  const r = await fetch(path, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{}) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
-export default async function handler(req,res){
-  try {
-    const notes = JSON.parse((await redis(["GET","epn:notes"])) || "[]");
-    res.status(200).json({ notes });
-  } catch(e){ res.status(500).json({ notes:[], error:String(e) }); }
+
+function App() {
+  const [view, setView] = useState("home");
+  const [notes, setNotes] = useState([]);
+  const [filter, setFilter] = useState("todas");
+  const [loaded, setLoaded] = useState(false);
+
+  const loadNotes = async () => {
+    try { const d = await fetch("/api/state").then(r=>r.json()); setNotes(d.notes||[]); }
+    catch(e){ console.error(e); }
+    setLoaded(true);
+  };
+  useEffect(() => { loadNotes(); }, []);
+
+  const shown = filter==="todas" ? notes : notes.filter(n=>n.category===filter);
+
+  return (
+    <div>
+      <header style={{borderBottom:"4px double #1c1917", position:"sticky", top:0, background:"#fafaf9", zIndex:10}}>
+        <div className="wrap" style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 16px"}}>
+          <div onClick={()=>{setView("home");loadNotes();}} style={{cursor:"pointer"}}>
+            <div style={{fontSize:11, letterSpacing:"0.3em", color:"#b91c1c", fontWeight:700, textTransform:"uppercase"}}>La Voz</div>
+            <div style={{fontSize:24, fontWeight:900, lineHeight:1}}>POPULAR</div>
+            <div className="muted" style={{fontSize:10, fontStyle:"italic"}}>Las noticias de la gente · Sé tu propio periodista</div>
+          </div>
+          <div className="sans" style={{display:"flex", gap:8}}>
+            {view!=="write" && <button className="btn-red" onClick={()=>setView("write")}>✎ Escribir</button>}
+            <button className="pill" onClick={()=>setView("editor")}>🛡 Editor</button>
+          </div>
+        </div>
+      </header>
+
+      <main className="wrap" style={{padding:"24px 16px"}}>
+        {view==="home" && <Home notes={shown} filter={filter} setFilter={setFilter} loaded={loaded} onWrite={()=>setView("write")} />}
+        {view==="write" && <Write onDone={()=>{setView("home");loadNotes();}} />}
+        {view==="editor" && <Editor onBack={()=>{setView("home");loadNotes();}} />}
+      </main>
+
+      <footer className="wrap sans" style={{padding:"32px 16px", textAlign:"center", fontSize:12, color:"#a8a29e", borderTop:"1px solid #e7e5e4", marginTop:32}}>
+        La Voz Popular — Experimento de periodismo ciudadano
+      </footer>
+    </div>
+  );
 }
+
+function Home({ notes, filter, setFilter, loaded, onWrite }) {
+  return (
+    <div>
+      <div className="sans" style={{display:"flex", flexWrap:"wrap", gap:8, marginBottom:24}}>
+        <button className={"pill"+(filter==="todas"?" on":"")} onClick={()=>setFilter("todas")}>Todas</button>
+        {CATS.map(c=> <button key={c.id} className={"pill"+(filter===c.id?" on":"")} onClick={()=>setFilter(c.id)}>{c.label}</button>)}
+      </div>
+      {!loaded ? <p className="muted">Cargando…</p> :
+       notes.length===0 ? (
+        <div style={{textAlign:"center", padding:"64px 0", border:"1px dashed #d6d3d1", borderRadius:3}}>
+          <p className="muted" style={{marginBottom:16}}>Todavía no hay notas publicadas. La primera puede ser la tuya.</p>
+          <button className="btn-red sans" onClick={onWrite}>Escribir la primera nota</button>
+        </div>
+      ) : (
+        <div style={{display:"flex", flexDirection:"column", gap:20}}>
+          {notes.map((n,i)=>(
+            <article key={n.id} className="card" style={i===0&&filter==="todas"?{borderLeft:"4px solid #b91c1c"}:{}}>
+              <div className="sans" style={{display:"flex", gap:8, alignItems:"center", marginBottom:8}}>
+                <span className="chip" style={{color:cat(n.category).c, background:cat(n.category).bg, borderColor:cat(n.category).bg, textTransform:"uppercase", fontWeight:600}}>{cat(n.category).label}</span>
+                <span className="muted" style={{fontSize:11}}>{fmt(n.ts)}</span>
+              </div>
+              <h2 style={{fontSize:20, fontWeight:700, margin:"0 0 8px"}}>{n.title}</h2>
+              <p style={{fontSize:15, lineHeight:1.6, color:"#44403c", whiteSpace:"pre-wrap", margin:0}}>{n.body}</p>
+              <div className="sans" style={{marginTop:12, paddingTop:12, borderTop:"1px solid #f5f5f4", fontSize:14}}>
+                <span className="muted">Por </span><strong>{n.author}</strong>
+                {n.isPseudonym && <span className="muted" style={{fontSize:11, fontStyle:"italic"}}> (seudónimo)</span>}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Write({ onDone }) {
+  const [category,setCategory]=useState("noticia");
+  const [body,setBody]=useState(""); const [title,setTitle]=useState("");
+  const [author,setAuthor]=useState(""); const [pseu,setPseu]=useState(false);
+  const [aiLoad,setAiLoad]=useState(false); const [aiErr,setAiErr]=useState(""); const [risk,setRisk]=useState("");
+  const [sending,setSending]=useState(false); const [result,setResult]=useState(null);
+
+  const runAI = async () => {
+    if (body.trim().length<10){ setAiErr("Escribí un poco más antes de usar el asistente."); return; }
+    setAiLoad(true); setAiErr(""); setRisk("");
+    try {
+      const r = await api("/api/assist",{ body, category });
+      if (r.improved) setBody(r.improved);
+      if (r.title && !title.trim()) setTitle(r.title);
+      if (r.risk && r.risk.trim()) setRisk(r.risk.trim());
+    } catch { setAiErr("El asistente no está disponible. Podés publicar igual."); }
+    setAiLoad(false);
+  };
+
+  const submit = async () => {
+    setSending(true);
+    try {
+      const r = await api("/api/submit",{ category, title:title.trim(), body:body.trim(), author:author.trim(), isPseudonym:pseu });
+      setResult(r.status);
+    } catch { setResult("error"); }
+    setSending(false);
+  };
+
+  if (result) return (
+    <div style={{textAlign:"center", padding:"48px 0"}}>
+      <h2 style={{fontSize:20}}>{result==="published"?"¡Tu nota se publicó!":result==="held"?"Tu nota quedó en revisión":"Hubo un problema"}</h2>
+      <p className="muted sans" style={{maxWidth:420, margin:"8px auto 24px", fontSize:14}}>
+        {result==="published"?"Ya está en el muro de La Voz Popular.":result==="held"?"El editor la va a revisar antes de publicarla. ¡Gracias por participar!":"Probá de nuevo en un momento."}
+      </p>
+      <button className="btn-dark sans" onClick={onDone}>Volver al muro</button>
+    </div>
+  );
+
+  return (
+    <div className="sans">
+      <button className="muted" style={{background:"none", border:"none", marginBottom:16}} onClick={onDone}>← Volver</button>
+      <h2 style={{fontFamily:"Georgia,serif", fontSize:24, fontWeight:900, margin:"0 0 4px"}}>Escribí tu nota</h2>
+      <p className="muted" style={{fontSize:14, marginBottom:24}}>Contá lo que vos consideres noticia. Después, si querés, el asistente la pule.</p>
+
+      <label style={{fontSize:11, fontWeight:600, textTransform:"uppercase", color:"#78716c"}}>Categoría</label>
+      <div style={{display:"flex", flexWrap:"wrap", gap:8, margin:"8px 0 20px"}}>
+        {CATS.map(c=> <button key={c.id} className={"pill"+(category===c.id?" on":"")} onClick={()=>setCategory(c.id)}>{c.label}</button>)}
+      </div>
+
+      <label style={{fontSize:11, fontWeight:600, textTransform:"uppercase", color:"#78716c"}}>Tu nota</label>
+      <textarea className="field" rows={7} style={{margin:"8px 0", resize:"vertical"}} value={body} onChange={e=>setBody(e.target.value)} placeholder="Escribí acá lo que querés contar, como te salga…" />
+
+      <button onClick={runAI} disabled={aiLoad} style={{background:"#faf5ff", color:"#6b21a8", border:"1px solid #e9d5ff", padding:"8px 12px", borderRadius:3, fontSize:14, marginBottom:8}}>
+        {aiLoad?"Puliendo tu nota…":"✨ Asistente IA: mejorar nota + sugerir titular"}
+      </button>
+      {aiErr && <p className="muted" style={{fontSize:12}}>{aiErr}</p>}
+      {risk && <div style={{background:"#fffbeb", border:"1px solid #fde68a", color:"#92400e", fontSize:12, padding:12, borderRadius:3, margin:"4px 0 12px"}}><strong>Aviso del asistente:</strong> {risk}</div>}
+
+      <label style={{fontSize:11, fontWeight:600, textTransform:"uppercase", color:"#78716c", display:"block", marginTop:12}}>Titular</label>
+      <input className="field" style={{margin:"8px 0 20px"}} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Un buen título para tu nota" />
+
+      <label style={{fontSize:11, fontWeight:600, textTransform:"uppercase", color:"#78716c"}}>Firma</label>
+      <input className="field" style={{margin:"8px 0"}} value={author} onChange={e=>setAuthor(e.target.value)} placeholder={pseu?"Tu seudónimo":"Tu nombre"} />
+      <label className="muted" style={{display:"flex", gap:8, alignItems:"center", fontSize:14, margin:"0 0 24px"}}>
+        <input type="checkbox" checked={pseu} onChange={e=>setPseu(e.target.checked)} /> Firmar con seudónimo
+      </label>
+
+      <button className="btn-red" style={{width:"100%", padding:"12px", fontWeight:600, opacity:(body.trim().length<3||sending)?.4:1}} disabled={body.trim().length<3||sending} onClick={submit}>
+        {sending?"Publicando…":"Publicar mi nota"}
+      </button>
+    </div>
+  );
+}
+
+function Editor({ onBack }) {
+  const [pin,setPin]=useState(""); const [authed,setAuthed]=useState(false); const [err,setErr]=useState(false);
+  const [tab,setTab]=useState("mod"); const [data,setData]=useState({held:[],notes:[],blocklist:[]}); const [bulk,setBulk]=useState("");
+
+  const fetchState = async (p) => {
+    const r = await api("/api/admin",{ pin:p||pin, action:"fetch" });
+    setData(r);
+  };
+  const enter = async () => {
+    try { await fetchState(pin); setAuthed(true); setErr(false); } catch { setErr(true); }
+  };
+  const act = async (action, extra) => {
+    try { const r = await api("/api/admin",{ pin, action, ...extra }); setData(r); } catch(e){ console.error(e); }
+  };
+
+  if (!authed) return (
+    <div className="sans" style={{maxWidth:360, margin:"40px auto", textAlign:"center"}}>
+      <div style={{fontSize:28, marginBottom:12}}>🔒</div>
+      <h2 style={{fontFamily:"Georgia,serif", fontSize:20}}>Panel del Editor</h2>
+      <p className="muted" style={{fontSize:14}}>Ingresá tu PIN para administrar el diario.</p>
+      <input type="password" className="field" style={{textAlign:"center", letterSpacing:"0.2em", margin:"8px 0"}} value={pin} onChange={e=>{setPin(e.target.value);setErr(false);}} onKeyDown={e=>{if(e.key==="Enter")enter();}} placeholder="PIN" />
+      {err && <p style={{color:"#dc2626", fontSize:12}}>PIN incorrecto</p>}
+      <button className="btn-dark" style={{width:"100%", padding:10, margin:"4px 0"}} onClick={enter}>Entrar</button>
+      <button className="muted" style={{background:"none", border:"none", width:"100%", padding:4}} onClick={onBack}>Volver al muro</button>
+    </div>
+  );
+
+  const addWords = () => {
+    const words = bulk.split(/[\n,]+/).map(w=>w.trim().toLowerCase()).filter(Boolean);
+    if (words.length) { act("addWords",{ words }); setBulk(""); }
+  };
+
+  return (
+    <div className="sans">
+      <div style={{display:"flex", justifyContent:"space-between", marginBottom:20}}>
+        <button className="muted" style={{background:"none", border:"none"}} onClick={onBack}>← Volver al muro</button>
+        <span className="muted" style={{fontSize:12}}>Modo editor</span>
+      </div>
+      <div style={{display:"flex", gap:4, borderBottom:"1px solid #e7e5e4", marginBottom:24}}>
+        <button className={"tab"+(tab==="mod"?" on":"")} onClick={()=>setTab("mod")}>Moderación</button>
+        <button className={"tab"+(tab==="held"?" on":"")} onClick={()=>setTab("held")}>En revisión{data.held.length?` (${data.held.length})`:""}</button>
+        <button className={"tab"+(tab==="pub"?" on":"")} onClick={()=>setTab("pub")}>Publicadas ({data.notes.length})</button>
+      </div>
+
+      {tab==="mod" && (
+        <div>
+          <p className="muted" style={{fontSize:14, marginBottom:12}}>Cargá las palabras o temas que querés frenar. Cualquier nota que las contenga <strong>no se publica sola</strong>: queda en revisión.</p>
+          <textarea className="field" rows={4} style={{marginBottom:8}} value={bulk} onChange={e=>setBulk(e.target.value)} placeholder="Palabras separadas por coma o una por línea…" />
+          <button className="btn-dark" style={{opacity:bulk.trim()?1:.4, marginBottom:20}} disabled={!bulk.trim()} onClick={addWords}>+ Agregar a la lista</button>
+          <div style={{fontSize:11, fontWeight:600, textTransform:"uppercase", color:"#78716c", marginBottom:8}}>Lista actual ({data.blocklist.length})</div>
+          {data.blocklist.length===0 ? <p className="muted" style={{fontSize:14, fontStyle:"italic"}}>Lista vacía.</p> :
+            <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+              {data.blocklist.map(w=>(
+                <span key={w} style={{display:"flex", gap:6, alignItems:"center", background:"#f5f5f4", border:"1px solid #e7e5e4", color:"#44403c", fontSize:12, padding:"4px 10px", borderRadius:999}}>
+                  {w} <button style={{background:"none", border:"none", color:"#a8a29e"}} onClick={()=>act("removeWord",{ word:w })}>✕</button>
+                </span>
+              ))}
+            </div>}
+        </div>
+      )}
+
+      {tab==="held" && (
+        <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          {data.held.length===0 ? <p className="muted" style={{fontStyle:"italic", textAlign:"center", padding:"24px 0"}}>No hay notas en revisión.</p> :
+            data.held.map(n=>(
+              <div key={n.id} style={{background:"#fffbeb", border:"1px solid #fde68a", borderRadius:3, padding:16}}>
+                <div style={{display:"flex", gap:8, marginBottom:6, flexWrap:"wrap"}}>
+                  <span className="chip" style={{color:cat(n.category).c, background:cat(n.category).bg, borderColor:cat(n.category).bg, textTransform:"uppercase", fontWeight:600}}>{cat(n.category).label}</span>
+                  {n.reasonType==="words" && n.flaggedWords && n.flaggedWords.length>0
+                    ? <span className="chip" style={{color:"#b91c1c", background:"#fee2e2", borderColor:"#fee2e2"}}>Frenó por: {n.flaggedWords.join(", ")}</span>
+                    : <span className="chip" style={{color:"#57534e", background:"#e7e5e4", borderColor:"#e7e5e4"}}>Revisión editorial</span>}
+                </div>
+                <h3 style={{fontFamily:"Georgia,serif", margin:"0 0 4px"}}>{n.title}</h3>
+                <p style={{fontSize:14, whiteSpace:"pre-wrap", color:"#44403c"}}>{n.body}</p>
+                <p className="muted" style={{fontSize:12, marginBottom:12}}>Por {n.author}{n.isPseudonym?" (seudónimo)":""}</p>
+                <div style={{display:"flex", gap:8}}>
+                  <button style={{background:"#059669", color:"#fff", border:"none", fontSize:12, padding:"6px 12px", borderRadius:3}} onClick={()=>act("approve",{ id:n.id })}>✓ Aprobar y publicar</button>
+                  <button className="pill" onClick={()=>act("discard",{ id:n.id })}>✕ Descartar</button>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+
+      {tab==="pub" && (
+        <div style={{display:"flex", flexDirection:"column", gap:12}}>
+          {data.notes.length===0 ? <p className="muted" style={{fontStyle:"italic", textAlign:"center", padding:"24px 0"}}>No hay notas publicadas.</p> :
+            data.notes.map(n=>(
+              <div key={n.id} className="card" style={{display:"flex", justifyContent:"space-between", gap:12, padding:16}}>
+                <div>
+                  <div style={{display:"flex", gap:8, marginBottom:4}}>
+                    <span className="chip" style={{color:cat(n.category).c, background:cat(n.category).bg, borderColor:cat(n.category).bg, textTransform:"uppercase", fontWeight:600}}>{cat(n.category).label}</span>
+                    <span className="muted" style={{fontSize:11}}>{fmt(n.ts)}</span>
+                  </div>
+                  <h3 style={{fontFamily:"Georgia,serif", fontSize:14, margin:0}}>{n.title}</h3>
+                  <p className="muted" style={{fontSize:12, margin:0}}>Por {n.author}{n.isPseudonym?" (seudónimo)":""}</p>
+                </div>
+                <button style={{color:"#dc2626", background:"none", border:"1px solid #fecaca", fontSize:12, padding:"6px 10px", borderRadius:3, alignSelf:"flex-start"}} onClick={()=>act("delete",{ id:n.id })}>🗑 Borrar</button>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
